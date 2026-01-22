@@ -343,7 +343,7 @@ def main():
     
     start_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     state = get_state()
-    add_custome_callback = state_check.get("mode", "finish") == "finish"
+    add_custome_callback = state.get("mode", "finish") == "finish"
     state["train"]["start_train_time"] = start_time
     if is_main_process(LOCAL_RANK):
         set_state(state)
