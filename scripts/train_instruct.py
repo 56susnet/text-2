@@ -11,6 +11,7 @@ from transformers.trainer_utils import is_main_process
 from dataclasses import dataclass, field
 from transformers import Trainer
 from customized_trainer import resize_if_needed, set_generation_config, CustomEvalSaveCallback, WhenToEvalHandler, init_wandb
+from callbacks import StochasticWeightAveraging, AdaptiveGradientCallback, CoordinatedDropoutCallback
 
 # from packing.packed_dataset import PackedDataset
 from transformers import (
@@ -341,6 +342,7 @@ def main():
     
     start_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     state = get_state()
+    add_custome_callback = state_check.get("mode", "finish") == "finish"
     state["train"]["start_train_time"] = start_time
     if is_main_process(LOCAL_RANK):
         set_state(state)
@@ -353,7 +355,7 @@ def main():
     
     total_steps_all_epochs = total_steps_per_epoch * training_args.num_train_epochs
     log_info(f"total_steps_per_epoch: {total_steps_per_epoch}; total_steps_all_epochs: {total_steps_all_epochs}")
-    
+    training_args.steps_per_epoch = total_steps_per_epoch
     success_file = os.path.join(training_args.output_dir, "success.txt")
     # remove the success file if it exists
     if is_main_process(LOCAL_RANK) and os.path.exists(success_file):
@@ -387,6 +389,24 @@ def main():
     trainer.tokenizer = tokenizer
     # last_checkpoint = get_last_checkpoint(training_args.output_dir)
     # log_info(f"last_checkpoint: {last_checkpoint}")
+    if add_custome_callback:
+        # AdaptiveGradientCallback
+        adaptive_cb = AdaptiveGradientCallback()
+        adaptive_cb.trainer = trainer
+        trainer.add_callback(adaptive_cb)
+
+        # CoordinatedDropoutCallback
+        coord_dropout_cb = CoordinatedDropoutCallback(trainer=trainer)
+        trainer.add_callback(coord_dropout_cb)
+
+        # StochasticWeightAveraging
+        swa_cb = StochasticWeightAveraging(
+            start_pct=0.75,
+            update_every=10,
+            use_equal_weights=False
+        )
+        trainer.add_callback(swa_cb)
+    
     trainer.train()
     
     if is_main_process(LOCAL_RANK):
