@@ -317,16 +317,7 @@ def main():
     )
     
     print("Start training ...", flush=True)       
-    # trainer.train()
-    if add_custome_callback:
-        # AdaptiveGradientCallback
-        adaptive_cb = AdaptiveGradientCallback()
-        adaptive_cb.trainer = trainer
-        trainer.add_callback(adaptive_cb)
-
-        # CoordinatedDropoutCallback
-        coord_dropout_cb = CoordinatedDropoutCallback(trainer=trainer)
-        trainer.add_callback(coord_dropout_cb)
+    
     trainer.train()
     
     if is_main_process(LOCAL_RANK):

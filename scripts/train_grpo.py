@@ -474,11 +474,6 @@ def main():
             )
         ],
     )
-    
-    # AdaptiveGradientCallback
-    adaptive_cb = AdaptiveGradientCallback()
-    adaptive_cb.trainer = trainer
-    trainer.add_callback(adaptive_cb)
 
     trainer.train()
     

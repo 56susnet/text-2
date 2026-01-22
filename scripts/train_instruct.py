@@ -387,25 +387,6 @@ def main():
     )
 
     trainer.tokenizer = tokenizer
-    # last_checkpoint = get_last_checkpoint(training_args.output_dir)
-    # log_info(f"last_checkpoint: {last_checkpoint}")
-    if add_custome_callback:
-        # AdaptiveGradientCallback
-        adaptive_cb = AdaptiveGradientCallback()
-        adaptive_cb.trainer = trainer
-        trainer.add_callback(adaptive_cb)
-
-        # CoordinatedDropoutCallback
-        coord_dropout_cb = CoordinatedDropoutCallback(trainer=trainer)
-        trainer.add_callback(coord_dropout_cb)
-
-        # StochasticWeightAveraging
-        swa_cb = StochasticWeightAveraging(
-            start_pct=0.75,
-            update_every=10,
-            use_equal_weights=False
-        )
-        trainer.add_callback(swa_cb)
     
     trainer.train()
     
