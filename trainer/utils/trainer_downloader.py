@@ -3,17 +3,17 @@ import asyncio
 import os
 import shutil
 import tempfile
-import json
-from pathlib import Path
+
 from huggingface_hub import HfApi
 from huggingface_hub import hf_hub_download
 from huggingface_hub import snapshot_download
+from transformers import CLIPTokenizer
 
-import trainer.utils.training_paths as train_paths
 from core.models.utility_models import FileFormat
 from core.models.utility_models import TaskType
 from core.utils import download_s3_file
 from trainer import constants as cst
+import trainer.utils.training_paths as train_paths
 
 
 hf_api = HfApi()
@@ -39,21 +39,30 @@ async def download_text_dataset(task_id, dataset_url, file_format, dataset_dir):
     return input_data_path, file_format
 
 
-def write_environment_task_proxy_dataset(
-    out_path: str,
-    dataset_size: int = 1000,
-    prompt_text: str = "Interact with this environment.",
-    prompt_field: str = "prompt",
-):
-    out_path = Path(out_path)
-    out_path.parent.mkdir(parents=True, exist_ok=True)
+async def download_image_dataset(dataset_zip_url, task_id, dataset_dir):
+    os.makedirs(dataset_dir, exist_ok=True)
+    local_zip_path = train_paths.get_image_training_zip_save_path(task_id)
+    print(f"Downloading dataset from: {dataset_zip_url}")
+    local_path = await download_s3_file(dataset_zip_url, local_zip_path)
+    print(f"Downloaded dataset to: {local_path}")
+    return local_path
 
-    records = [{prompt_field: prompt_text} for _ in range(dataset_size)]
 
-    with out_path.open("w", encoding="utf-8") as f:
-        json.dump(records, f, indent=2, ensure_ascii=False)
+def is_safetensors_available(repo_id: str) -> tuple[bool, str | None]:
+    files_metadata = hf_api.list_repo_tree(repo_id=repo_id, repo_type="model")
+    check_size_in_gb = 6
+    total_check_size = check_size_in_gb * 1024 * 1024 * 1024
+    largest_file = None
 
-    print(f"Wrote {len(records)} records to {out_path} with field '{prompt_field}'")
+    for file in files_metadata:
+        if hasattr(file, "size") and file.size is not None:
+            if file.path.endswith(".safetensors") and file.size > total_check_size:
+                if largest_file is None or file.size > largest_file.size:
+                    largest_file = file
+
+    if largest_file:
+        return True, largest_file.path
+    return False, None
 
 
 def download_from_huggingface(repo_id: str, filename: str, local_dir: str) -> str:
@@ -74,6 +83,35 @@ def download_from_huggingface(repo_id: str, filename: str, local_dir: str) -> st
         raise e
 
 
+def download_flux_unet(repo_id: str, output_dir: str) -> str:
+    files_metadata = hf_api.list_repo_tree(repo_id=repo_id, repo_type="model")
+    file_path = None
+    for file in files_metadata:
+        if hasattr(file, "size") and file.size is not None:
+            if file.path.endswith(".safetensors") and file.size > 10 * 1024 * 1024 * 1024:
+                file_path = file.path
+                local_path = download_from_huggingface(repo_id, file_path, output_dir)
+    if not file_path:
+        raise FileNotFoundError(f"No valid file found in root of repo '{repo_id}'.")
+
+    return local_path
+
+
+async def download_base_model(repo_id: str, save_root: str) -> str:
+    model_name = repo_id.replace("/", "--")
+    save_path = os.path.join(save_root, model_name)
+    if os.path.exists(save_path):
+        print(f"Model {repo_id} already exists at {save_path}. Skipping download.")
+        return save_path
+    else:
+        has_safetensors, safetensors_path = is_safetensors_available(repo_id)
+        if has_safetensors and safetensors_path:
+            return download_from_huggingface(repo_id, safetensors_path, save_path)
+        else:
+            snapshot_download(repo_id=repo_id, repo_type="model", local_dir=save_path, local_dir_use_symlinks=False)
+            return save_path
+
+
 async def download_axolotl_base_model(repo_id: str, save_dir: str) -> str:
     model_dir = os.path.join(save_dir, repo_id.replace("/", "--"))
     if os.path.exists(model_dir):
@@ -90,34 +128,32 @@ async def main():
     parser.add_argument(
         "--task-type",
         required=True,
-        choices=[TaskType.INSTRUCTTEXTTASK.value, TaskType.DPOTASK.value, TaskType.GRPOTASK.value, TaskType.CHATTASK.value, TaskType.ENVTASK.value],
+        choices=[TaskType.IMAGETASK.value, TaskType.INSTRUCTTEXTTASK.value, TaskType.DPOTASK.value, TaskType.GRPOTASK.value, TaskType.CHATTASK.value],
     )
     parser.add_argument("--dataset", required=True)
     parser.add_argument("--file-format")
-    
-    # Optional args that might technically be passed but ignored for text tasks
-    # (Leaving out model-type completely as it causes issues if enum values are missing)
-    
-    args, unknown = parser.parse_known_args()
+    args = parser.parse_args()
 
     dataset_dir = cst.CACHE_DATASETS_DIR
     model_dir = cst.CACHE_MODELS_DIR
-    adapters_dir = cst.HUGGINGFACE_CACHE_PATH
     os.makedirs(dataset_dir, exist_ok=True)
     os.makedirs(model_dir, exist_ok=True)
-    os.makedirs(adapters_dir, exist_ok=True)
 
     print(f"Downloading datasets to: {dataset_dir}", flush=True)
     print(f"Downloading models to: {model_dir}", flush=True)
 
-    if args.task_type == TaskType.ENVTASK.value:
-        model_path = await download_axolotl_base_model(args.model, model_dir)
-        input_data_path = train_paths.get_text_dataset_path(args.task_id)
-        write_environment_task_proxy_dataset(
-            out_path=input_data_path,
-            dataset_size=1000,
-            prompt_text="Interact with this environment.",
-            prompt_field="prompt",
+    if args.task_type == TaskType.IMAGETASK.value:
+        dataset_zip_path = await download_image_dataset(args.dataset, args.task_id, dataset_dir)
+        model_path = await download_base_model(args.model, model_dir)
+        print("Downloading clip models", flush=True)
+        CLIPTokenizer.from_pretrained("openai/clip-vit-large-patch14", cache_dir=cst.HUGGINGFACE_CACHE_PATH)
+        CLIPTokenizer.from_pretrained("laion/CLIP-ViT-bigG-14-laion2B-39B-b160k", cache_dir=cst.HUGGINGFACE_CACHE_PATH)
+        snapshot_download(
+            repo_id="google/t5-v1_1-xxl",
+            repo_type="model",
+            cache_dir="/cache/hf_cache/",
+            local_dir_use_symlinks=False,
+            allow_patterns=["tokenizer_config.json", "spiece.model", "special_tokens_map.json", "config.json"],
         )
     else:
         dataset_path, _ = await download_text_dataset(args.task_id, args.dataset, args.file_format, dataset_dir)
