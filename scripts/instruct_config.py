@@ -25,31 +25,34 @@ INSTRUCT_CONFIG = {
         "distributed": "ddp",
         "gpu_count": 1,
         "batch_size": 140,
-        "use_lora": False,
+        "use_lora": True,
     },
     "1_2_b": {
         "lr": 0.0001,
         "distributed": "ddp",
         "gpu_count": 1,
-        "use_lora": False,
+        "use_lora": True,
         "batch_size": 100,
     },
     "2_4_b": {
         "lr": 7.5e-5,
         "distributed": "ddp",
         "gpu_count": 1,
+        "use_lora": True,
         "batch_size": 48,
     },
     "4_5_b": {
         "lr": 7e-5,
         "distributed": "ddp",
         "gpu_count": 2,
+        "use_lora": True,
         "batch_size": 40,
     },
     "5_9_b": {
         "lr": 3.5e-5,
         "distributed": "ddp",
         "gpu_count": 2,
+        "use_lora": True,
         "batch_size": 28,
     },
     "9_12_b": {
@@ -156,7 +159,9 @@ def get_run_cmd(config: dict, gpu_nums: int):
     --per_device_eval_batch_size 1 \
     --gradient_accumulation_steps {gradient_accumulation_steps} \
     --eval_accumulation_steps 1 \
-    --eval_strategy no \
+    --auto_find_batch_size True \
+    --load_best_model_at_end True \
+    --eval_strategy epoch \
     --save_strategy epoch \
     --logging_steps 5 \
     --learning_rate {learning_rate} \
@@ -194,14 +199,17 @@ def get_training_json(train_info: dict) -> dict:
     model_architecture = get_model_architecture(model_path)
     param_nums = get_model_num_params(model_name, model_path)
     config = get_instruct_config(param_nums)
+    opt_fix = "adamw_torch_fused"
+    if param_nums > 2_000_000_000:
+        opt_fix = "paged_adamw_8bit"
     run_config = {
         "epoch_num": 3,
         "batch_size": config["batch_size"],
         "learning_rate": config["lr"],
         "min_lr_rate": 0.25,
         "use_liger": get_use_liger(model_architecture),
-        "optimizer": "paged_adamw_8bit",
-        "use_lora": config.get("use_lora", False),
+        "optimizer": opt_fix ,
+        "use_lora": True,
         "disable_fa": disable_flash_attention(model_architecture, model_name),
         "packing": "True",
         "gpu_nums": config["gpu_count"],

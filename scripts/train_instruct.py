@@ -136,6 +136,7 @@ def load_lora_model(training_args: TrainingArguments, model_path: str, lora_args
         lora_dropout=lora_args.lora_dropout,
         bias=lora_args.lora_bias,
         task_type="CAUSAL_LM",
+        init_lora_weights="gaussian",
         # modules_to_save=["lm_head", "embed_tokens"],  # because we retrain the embedding
     )
 
