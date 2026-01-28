@@ -8,14 +8,12 @@ DPO_CONFIG = {
         "distributed": "ddp",
         "gpu_count": 1,
         "batch_size": 16,
-        "use_lora": True
     },
     "1_2_b": {
         "lr": 8.7e-6,
         "distributed": "ddp",
         "gpu_count": 1,
         "batch_size": 12,
-        "use_lora": True
     },
     "2_4_b": {
         "lr": 6.5e-6,
@@ -155,10 +153,8 @@ def get_run_cmd(config: dict, gpu_nums: int):
     --per_device_eval_batch_size 1 \
     --gradient_accumulation_steps {gradient_accumulation_steps} \
     --eval_accumulation_steps 1 \
-    --auto_find_batch_size True \
-    --load_best_model_at_end True \
-    --eval_strategy epoch \
-    --save_strategy epoch \
+    --eval_strategy no \
+    --save_strategy no \
     --logging_steps 5 \
     --learning_rate {learning_rate} \
     --weight_decay 0. \
@@ -173,7 +169,7 @@ def get_run_cmd(config: dict, gpu_nums: int):
 
     if config.get("use_lora", False):
         template += (
-            " --use_peft --lora_r 128 --lora_alpha 256 --lora_dropout 0.1 --lora_target_modules all-linear"
+            " --use_peft --lora_r 128 --lora_alpha 256 --lora_target_modules all-linear"
         )
 
     if run_type == "ds":
@@ -194,18 +190,14 @@ def get_training_json(train_info: dict) -> dict:
     model_path = train_info["model_path"]
     model_architecture = get_model_architecture(model_path)
     param_nums = get_model_num_params(model_name, model_path)
-    opt_fix = "adamw_torch_fused"
-    if param_nums > 2_000_000_000:
-        opt_fix = "paged_adamw_8bit"
-
     config = get_config(param_nums)
     run_config = {
-        "epoch_num": 3,
+        "epoch_num": 10,
         "batch_size": config["batch_size"],
         "learning_rate": config["lr"],
         "min_lr_rate": 0.25,
         "use_liger": get_use_liger(model_architecture),
-        "optimizer": opt_fix,
+        "optimizer": "paged_adamw_8bit",
         "use_lora": config.get("use_lora", False),
         "disable_fa": disable_flash_attention(model_architecture, model_name),
         "gpu_nums": config["gpu_count"],

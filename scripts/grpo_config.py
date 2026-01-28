@@ -18,7 +18,6 @@ GRPO_CONFIG = {
         "gpu_count": 1,
         "batch_size": 40,
         "vllm_gpu_memory_utilization": 0.4,
-        "use_lora": True,
     },
     "1_2_b": {
         "lr": 8e-6,
@@ -26,7 +25,6 @@ GRPO_CONFIG = {
         "gpu_count": 1,
         "batch_size": 40,
         "vllm_gpu_memory_utilization": 0.4,
-        "use_lora": True,
     },
     "2_4_b": {
         "lr": 8e-6,
@@ -208,10 +206,8 @@ def get_run_cmd(config: dict, gpu_nums: int):
     --per_device_eval_batch_size {eval_batch_size} \
     --gradient_accumulation_steps {gradient_accumulation_steps} \
     --eval_accumulation_steps 1 \
-    --auto_find_batch_size True \
-    --load_best_model_at_end True \
-    --eval_strategy epoch \
-    --save_strategy epoch \
+    --eval_strategy no \
+    --save_strategy no \
     --logging_steps 5 \
     --learning_rate {learning_rate} \
     --weight_decay 0. \
@@ -227,7 +223,7 @@ def get_run_cmd(config: dict, gpu_nums: int):
 
     if config.get("use_lora", False):
         template += (
-            " --use_peft --lora_r 128 --lora_alpha 256 --lora_dropout 0.1 --lora_target_modules all-linear"
+            " --use_peft --lora_r 128 --lora_alpha 256 --lora_target_modules all-linear"
         )
 
     if config.get("use_vllm", True):
@@ -258,18 +254,14 @@ def get_training_json(train_info: dict) -> dict:
     model_architecture = get_model_architecture(model_path)
     param_nums = get_model_num_params(model_name, model_path)
     config = get_grpo_config(param_nums)
-    opt_fix = "adamw_torch_fused"
-    if param_nums > 2_000_000_000:
-        opt_fix = "paged_adamw_8bit"
-
     print(f"config: {config}")
     run_config = {
-        "epoch_num": 2,
+        "epoch_num": 10,
         "batch_size": config["batch_size"],
         "learning_rate": config["lr"],
         "min_lr_rate": 0.25,
         "use_liger": get_use_liger(model_architecture),
-        "optimizer": opt_fix,
+        "optimizer": "paged_adamw_8bit",
         "use_lora": config.get("use_lora", False),
         "disable_fa": disable_flash_attention(model_architecture, model_name),
         "gpu_nums": config["gpu_count"],
@@ -295,7 +287,7 @@ def get_training_json(train_info: dict) -> dict:
     train_request["save_before_remaining_time"] = 3
     train_request["min_steps"] = 100
     train_request["adjust_batch_size"] = False
-    train_request["periodic_save_steps"] = 10
+    train_request["periodic_save_steps"] = 500
 
     if if_contain_slow_reward_function(train_info["dataset_type"]):
         train_request["save_before_remaining_time"] = 12
