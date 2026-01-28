@@ -352,6 +352,11 @@ def main():
             )
     
     total_steps_all_epochs = total_steps_per_epoch * training_args.num_train_epochs
+    
+    if total_steps_all_epochs < 1000:
+        training_args.num_train_epochs = 10
+        total_steps_all_epochs = total_steps_per_epoch * training_args.num_train_epochs
+
     log_info(f"total_steps_per_epoch: {total_steps_per_epoch}; total_steps_all_epochs: {total_steps_all_epochs}")
     
     success_file = os.path.join(training_args.output_dir, "success.txt")
